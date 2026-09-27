@@ -7,6 +7,7 @@ from app.store import store
 
 MODULE = "plant"
 REQUIRED_FIELDS = ["电站编号", "电站名称", "装机容量"]
+EDITABLE_FIELDS = ["电站编号", "电站名称", "装机容量", "并网日期", "所属区域", "运维负责人", "组件厂家"]
 STATUS_ORDER = ["建设中", "并网运行", "停运维护", "已退役"]
 ACTION_RULES = {"确认并网": "并网运行", "进入维护": "停运维护", "标记退役": "已退役"}
 NEGATIVE_ACTIONS = []
@@ -45,6 +46,30 @@ class PlantService:
         entry["abnormal"] = False
         rows.append(entry)
         return entry, []
+
+    def update_entry(self, entry_id: int, values: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+        """按记录 id 原地更新档案：列表、详情、编辑弹窗都只能用这个入口回写。
+
+        只合并可编辑字段，id、status 等流转字段不允许从这里改，避免回写串行丢数据。
+        """
+        entry = store.find(MODULE, entry_id)
+        if entry is None:
+            return None, f"光伏电站 {entry_id} 不存在或已归档"
+        blanked = [field for field in REQUIRED_FIELDS if field in values and not str(values.get(field) or "").strip()]
+        if blanked:
+            return None, f"必填字段不能清空：{'、'.join(blanked)}"
+        code = str(values.get("电站编号") or "").strip()
+        if code:
+            duplicated = any(
+                str(row.get("电站编号", "")) == code and int(row.get("id", 0)) != entry_id
+                for row in store.rows(MODULE)
+            )
+            if duplicated:
+                return None, f"电站编号 {code} 已登记在其他档案上，不能重复占用"
+        for field in EDITABLE_FIELDS:
+            if field in values:
+                entry[field] = values[field]
+        return entry, "光伏电站档案已更新"
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(MODULE, entry_id)
